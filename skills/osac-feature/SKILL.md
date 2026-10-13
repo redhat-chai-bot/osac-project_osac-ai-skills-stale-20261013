@@ -7,8 +7,9 @@ metadata:
 
 # OSAC Feature Creation
 
-Create Feature issues in the OSAC Jira project using jira-cli, then create a
-bootstrap epic with documentation work-gate tasks for the AI-assisted SDLC.
+Create Feature issues in the OSAC Jira project using jira-cli, then create
+bootstrap and UIX epics with documentation work-gate tasks for the AI-assisted
+SDLC.
 
 Requires **bash or zsh** on macOS or Linux (same as jira-cli usage). Use
 portable constructs only — macOS `/bin/bash` is 3.2 (no `mapfile`).
@@ -180,9 +181,9 @@ When set to a real release, store it in `FIX_VERSION`.
 4. On `invalid` (including empty input), ask again — do not default to backlog.
 5. On `lookup_failed` (Jira release list error), stop and report — do not treat as invalid input.
 
-Only the Feature **chooses** `fixVersion` at the confirm gate. The bootstrap epic
-receives a **copy** when the Feature version is set (not backlog). Gate tasks
-never receive fix version.
+Only the Feature **chooses** `fixVersion` at the confirm gate. The bootstrap and
+UIX epics receive a **copy** when the Feature version is set (not backlog).
+Gate tasks never receive fix version.
 
 ### Assignee (optional)
 
