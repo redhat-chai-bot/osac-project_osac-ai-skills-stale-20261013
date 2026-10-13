@@ -2,7 +2,7 @@
 name: osac-feature
 description: Create Feature issues in the OSAC Jira project, or complete empty placeholder Features. Use when the user wants to create a Feature, enhancement, or new capability request for OSAC.
 metadata:
-  version: "0.4.1"
+  version: "0.5.0"
 ---
 
 # OSAC Feature Creation
@@ -49,11 +49,13 @@ epic is created as a *child* of the Feature to track documentation gates.
 | Issue type | fixVersion | Labels | Notes |
 |------------|------------|--------|-------|
 | Feature | Yes (confirm gate; source of truth) | (optional) `osac-ux`, `osac-ui`, `customer`, … | User chooses version or backlog |
-| Bootstrap epic | Copied from Feature when set | `bootstrap`; also `no-ui` when `REQUIRES_UI=no` | Never independently chosen |
-| Gate tasks | No | `osac-ux` / `osac-ui` on UX/UI tasks only | PRD and Design have no labels |
+| Bootstrap epic | Copied from Feature when set | `bootstrap` | Never independently chosen |
+| UIX epic | Copied from Feature when set | `osac-ux`, `osac-ui` | Only when `REQUIRES_UI=yes`; team always OSAC-UI |
+| Bootstrap tasks (PRD, Design) | No | (none) | Under bootstrap epic |
+| UIX tasks (UX Design, UI Design) | No | `osac-ux` / `osac-ui` per task | Under UIX epic; only when `REQUIRES_UI=yes` |
 
 The Feature is the single source of truth for `/milestone-scope` reporting.
-Bootstrap epics mirror the Feature's fix version after parent linkage is verified.
+Bootstrap and UIX epics mirror the Feature's fix version after parent linkage is verified.
 
 ## Customer Labeling
 
@@ -137,8 +139,9 @@ On takeover, skip this prompt when `FEATURE_TEAM` is already set — store it in
 Only the Feature **chooses** Team at the confirm gate. The bootstrap epic and
 PRD/Design gate tasks receive a **copy** — see the propagation rules in
 [bash-patterns.md](references/bash-patterns.md) and
-[bootstrap-tasks.md](references/bootstrap-tasks.md). UX Design and UI Design
-gate tasks always get `OSAC-UI` regardless of the Feature's choice.
+[bootstrap-tasks.md](references/bootstrap-tasks.md). The UIX epic and its
+UX Design and UI Design tasks always get `OSAC-UI` regardless of the
+Feature's choice.
 
 ### Customer (optional)
 
@@ -148,8 +151,8 @@ unset when not customer-driven.
 
 ### Requires UI work
 
-Ask: "Does this feature require UI work?" — this gates **both** the UX Design
-and UI Design bootstrap tasks (and `osac-ux` / `osac-ui` labels). There is no
+Ask: "Does this feature require UI work?" — this gates the UIX epic and its
+UX Design and UI Design tasks (and `osac-ux` / `osac-ui` labels). There is no
 separate UX-only prompt; UI work = yes implies the full UX → UI doc track per
 [OSAC-2304](https://redhat.atlassian.net/browse/OSAC-2304).
 
@@ -229,12 +232,14 @@ Takeover:  Ready to complete existing Feature <KEY> in Jira:
   Assignee:    <name or unassigned>
 
   Bootstrap epic:  <FEATURE_SUMMARY> - Bootstrap
-    Labels: bootstrap[, no-ui if no UI work]; fix version, component, and team copied from Feature (when set)
+    Labels: bootstrap; fix version, component, and team copied from Feature (when set)
   Bootstrap tasks: PRD - <FEATURE_SUMMARY>, Design - <FEATURE_SUMMARY>
-    [, UX Design - <FEATURE_SUMMARY>, UI Design - <FEATURE_SUMMARY> if UI work]
+  [UIX epic:       UIX - <FEATURE_SUMMARY>                                   if UI work]
+    [Labels: osac-ux, osac-ui; fix version and component copied from Feature; team always OSAC-UI]
+  [UIX tasks:      UX Design - <FEATURE_SUMMARY>, UI Design - <FEATURE_SUMMARY>   if UI work]
 
   (Gate tasks do not receive fix version. PRD/Design tasks get <TEAM>;
-   UX/UI Design tasks always get OSAC-UI regardless of <TEAM>.)
+   UIX epic and UX/UI Design tasks always get OSAC-UI regardless of <TEAM>.)
 
 Proceed? (yes/no)
 ```
@@ -251,7 +256,9 @@ Execute in order. **Read each reference file before its step** — do not skip.
 | 2 | [feature-body-template.md](references/feature-body-template.md) | Create Feature, or take over an empty placeholder; set missing fix version and team; assign if requested |
 | 2a | [outcome-creation.md](references/outcome-creation.md) | **Only when `OUTCOME_MODE` is set:** create or verify the Outcome, reparent the Feature onto it. Else skip |
 | 3 | [bootstrap-epic.md](references/bootstrap-epic.md) | Create or reuse bootstrap epic; verify parent linkage (to the **Feature**, not the Outcome) |
-| 4 | [bootstrap-tasks.md](references/bootstrap-tasks.md) | Create PRD, Design[, UX/UI Design] gate tasks; apply team |
+| 3a | [bootstrap-epic.md](references/bootstrap-epic.md) | **Only when `REQUIRES_UI=yes`:** create or reuse UIX epic; verify parent linkage to the Feature |
+| 4 | [bootstrap-tasks.md](references/bootstrap-tasks.md) | Create PRD, Design gate tasks under the bootstrap epic; apply team |
+| 4a | [bootstrap-tasks.md](references/bootstrap-tasks.md) | **Only when `REQUIRES_UI=yes`:** create UX Design, UI Design tasks under the UIX epic; apply team OSAC-UI |
 
 ## Error Handling
 
@@ -268,12 +275,12 @@ Execute in order. **Read each reference file before its step** — do not skip.
 | Empty `KEY` after Feature create | Stop; report `$ERR` and error JSON; do not bootstrap |
 | Fix version edit failed after Feature create | Non-fatal; report manual `jira issue edit --fix-version …`; continue bootstrap |
 | Team field edit failed after Feature/epic/task create | Non-fatal; report manual Jira UI edit; continue bootstrap |
-| Bootstrap metadata failed (label, fix version, or team copy) | Non-fatal; report manual edit command (label/fix version) or Jira UI link (team, via `apply_team`); continue gate tasks |
-| Empty `EPIC_KEY` after epic create | Stop; report Feature key and errors; do not create tasks |
+| Epic metadata failed (label, fix version, or team copy) | Non-fatal; report manual edit; continue gate tasks |
+| Empty epic key after create (bootstrap or UIX) | Stop; report Feature key, errors; do not create tasks |
 | Epic parent edit slow | Wait up to 3 minutes; do not kill and retry |
-| Epic parent ≠ Feature after 30s re-check | Stop; report keys + manual `jira issue edit -P … </dev/null>`; do not create tasks |
-| Orphan epic reused | Run parent edit + verify before tasks |
-| Empty task key mid-way | Stop; report Feature, epic, completed tasks, and errors |
+| Epic parent ≠ Feature after 30s re-check | Stop; report keys + manual fix; do not create tasks |
+| Orphan epic reused (bootstrap or UIX) | Run parent edit + verify before tasks |
+| Empty task key mid-way | Stop; report Feature, epic(s), completed tasks, and errors |
 | Duplicate epic/tasks found | Reuse existing keys; do not create again |
 | Malformed Jira key after create | Stop; report `$ERR` and error JSON; do not proceed |
 | Partial bootstrap (orphan Feature/epic) | Report all created keys; user may close/delete manually in Jira |
@@ -297,18 +304,15 @@ Component:      <component>
 Team:           <team>
 Fix version:    <version> | backlog (unset)
 Labels:         [osac-ux, osac-ui if UI work][, customer, customer:<name>] | none
-Bootstrap epic: https://redhat.atlassian.net/browse/<EPIC_KEY>
-Bootstrap labels: bootstrap[, no-ui if no UI work]
-Epic component: <copied from Feature | in-memory fallback>
-Epic fix version: <copied from Feature | not set (backlog)>
-Epic team:      <copied from Feature | already set (unchanged)>
+Bootstrap epic: https://redhat.atlassian.net/browse/<EPIC_KEY>  (labels: bootstrap)
 Bootstrap tasks:
-  - PRD:        <TASK_PRD>
-  - Design:     <TASK_DESIGN>
-  [- UX Design:  <TASK_UX>         (osac-ux)   UI work only]
-  [- UI Design:  <TASK_UI>         (osac-ui)   UI work only]
-  (PRD/Design get team <team>; UX/UI Design get team OSAC-UI — see above
-   for any team edit failures, which are non-fatal and reported live)
+  - PRD:        <TASK_PRD>           (team: <team>)
+  - Design:     <TASK_DESIGN>        (team: <team>)
+[UIX epic:      https://redhat.atlassian.net/browse/<UIX_EPIC_KEY>  (labels: osac-ux, osac-ui; team: OSAC-UI)   UI work only]
+[UIX tasks:]
+  [- UX Design:  <TASK_UX>          (osac-ux, team: OSAC-UI)]
+  [- UI Design:  <TASK_UI>          (osac-ui, team: OSAC-UI)]
+  (Both epics copy fix version and component from Feature when set)
 Status:         New
 ```
 
@@ -331,26 +335,12 @@ See [feature-body-template.md](references/feature-body-template.md) for the Jira
 
 - OSAC project key: `OSAC`
 - Customer-driven features: add `customer` and `customer:<name>` labels on the Feature only
-- Labels: Feature gets `osac-ux`/`osac-ui` when `REQUIRES_UI=yes`, matching the
-  UX Design and UI Design tasks; PRD and Design have none; bootstrap epic gets
-  `bootstrap` (plus `no-ui` when `REQUIRES_UI=no`)
-- Jira hierarchy: [Outcome →] Feature → Bootstrap epic → gate tasks (PRD,
-  Design, [UX Design, UI Design]). An Outcome optionally groups the Features
-  that deliver one capability domain incrementally — sizing in
-  [scope-check.md](references/scope-check.md), mechanics in
-  [outcome-creation.md](references/outcome-creation.md). The bootstrap epic
-  always parents to the Feature, never to the Outcome
-- Gate task summaries include the Feature title (`<gate> - ${FEATURE_SUMMARY}`,
-  e.g. `PRD - <FEATURE_SUMMARY>`) so they're identifiable outside the epic/Feature —
-  see [bootstrap-tasks.md](references/bootstrap-tasks.md)
-- Bootstrap epic: create without `-P`, then `jira issue edit -P` — Epic create with `-P` on a Feature parent returns HTTP 400; use `</dev/null` on all jira create/edit to avoid stdin hangs (jira-cli#948)
-- If a Feature/epic/task create or edit is blocked by Cursor Auto-review, gated by a Claude Code permission prompt, or hangs silently, retry the **same** command per [jira-task-management](../jira-task-management/SKILL.md)'s "Approval blocks vs. stdin hangs on create/edit" — keep `--no-input`/`</dev/null`. Create retries keep `--template`; takeover body edits keep `-b` (jira-cli `issue edit` has no `--template`). Do **not** invent a skip-description path, which creates empty Features
-- Gate tasks track documentation milestones, not implementation work
-- **Team:** not writable via jira-cli (`customfield_10001`; see `apply_team()`
-  in [bash-patterns.md](references/bash-patterns.md)) — set with a direct REST
-  call instead. Propagation rules for Team and fix version are stated once
-  under their input sections above; this list does not restate them
-- Existing bootstrap epics predating this convention are not backfilled — only
-  epics created going forward get the `bootstrap` label and copied `fixVersion`
-- Temp files: source the shared script per [bash-patterns.md](references/bash-patterns.md)'s vendor-lookup snippet; call `add_temp` in the parent shell after each `new_temp` — see `jira-task-management` Safe create pattern
+- Jira hierarchy: [Outcome →] Feature → { Bootstrap epic → PRD, Design;
+  UIX epic → UX Design, UI Design (when `REQUIRES_UI=yes`) }. Both
+  epics parent to the Feature, never to the Outcome
+- Epics: create without `-P`, then `jira issue edit -P` — Epic create with `-P` on a Feature parent returns HTTP 400; use `</dev/null` on all jira create/edit (jira-cli#948)
+- If a create/edit is blocked by Cursor Auto-review or a permission prompt, retry the **same** command per [jira-task-management](../jira-task-management/SKILL.md)'s "Approval blocks vs. stdin hangs on create/edit"
+- **Team:** not writable via jira-cli; see `apply_team()` in [bash-patterns.md](references/bash-patterns.md). Bootstrap epic + PRD/Design copy the Feature's team; UIX epic + UX/UI Design always get OSAC-UI
+- Existing epics predating this convention are not backfilled
+- Temp files: source the shared script per [bash-patterns.md](references/bash-patterns.md)'s vendor-lookup snippet; call `add_temp` after each `new_temp`
 - jira-cli handles markdown-to-ADF conversion automatically

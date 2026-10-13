@@ -486,43 +486,44 @@ EOF
 }
 ```
 
-## Bootstrap epic metadata
+## Epic metadata
 
 ```bash
-# After bootstrap epic parent verified. Label at create; copy fix version,
-# team, and component here when the epic is missing them. Re-run safe on reuse.
-# Caller passes "backlog" for fix_version when the Feature edit did not succeed,
+# After epic parent verified. Apply labels, copy fix version, team, and
+# component when the epic is missing them. Re-run safe on reuse. Caller
+# passes "backlog" for fix_version when the Feature edit did not succeed,
 # so a failed Feature update never results in a copied version on the epic.
-# Team and component come from the Feature when set, else $4 / BOOTSTRAP_COMPONENT.
-# requires_ui ("yes"/"no") gates the no-ui label — "no" adds it.
+# Team comes from $4 (caller decides — Feature team for bootstrap, "OSAC-UI"
+# for UIX). Component comes from the Feature when set, else BOOTSTRAP_COMPONENT.
+# Labels are space-separated in $5 — each one is applied individually.
 #
 # The epic's raw JSON is read once and used for fixVersion, Team, and Component
 # checks — fix_version's "backlog" case must not skip the Team/Component copy,
 # so the checks run independently rather than one short-circuiting the others.
-apply_bootstrap_epic_metadata() {
-  local epic_key=$1 feature_key=$2 fix_version=$3 team_name=$4 requires_ui=${5:-yes}
+apply_epic_metadata() {
+  local epic_key=$1 feature_key=$2 fix_version=$3 team_name=$4 labels=${5:-}
   local err team_source=$team_name feature_component=""
-  err=$(new_temp osac-jira-bootstrap-meta-err)
+  err=$(new_temp osac-jira-epic-meta-err)
   add_temp "$err"
 
   if read_feature_fields "$feature_key"; then
-    [ -n "$FEATURE_TEAM" ] && team_source=$FEATURE_TEAM
+    # For team: only inherit from Feature when caller passed the Feature's
+    # own team (bootstrap epic). Callers that pass a fixed team name (UIX
+    # epic → "OSAC-UI") should not be overridden by the Feature's team.
+    if [ "$team_name" != "OSAC-UI" ] && [ -n "$FEATURE_TEAM" ]; then
+      team_source=$FEATURE_TEAM
+    fi
     feature_component=${FEATURE_COMPONENT:-}
   fi
 
-  if ! jira issue edit "$epic_key" -l bootstrap --no-input 2>>"$err" </dev/null; then
-    echo "Bootstrap label edit failed for ${epic_key} — set manually:" >&2
-    echo "  jira issue edit ${epic_key} -l bootstrap --no-input </dev/null" >&2
-    cat "$err" >&2
-  fi
-
-  if [ "$requires_ui" = "no" ]; then
-    if ! jira issue edit "$epic_key" -l no-ui --no-input 2>>"$err" </dev/null; then
-      echo "no-ui label edit failed for ${epic_key} — set manually:" >&2
-      echo "  jira issue edit ${epic_key} -l no-ui --no-input </dev/null" >&2
+  local label
+  for label in $labels; do
+    if ! jira issue edit "$epic_key" -l "$label" --no-input 2>>"$err" </dev/null; then
+      echo "Label edit failed for ${epic_key} (${label}) — set manually:" >&2
+      echo "  jira issue edit ${epic_key} -l ${label} --no-input </dev/null" >&2
       cat "$err" >&2
     fi
-  fi
+  done
 
   local raw
   if ! raw=$(jira issue view "$epic_key" --raw 2>>"$err"); then
@@ -540,7 +541,7 @@ apply_bootstrap_epic_metadata() {
     epic_version_count=$(printf '%s' "$raw" | jq -r '[.fields.fixVersions[]?.name] | length')
     if [ "${epic_version_count:-0}" -eq 0 ]; then
       if ! jira issue edit "$epic_key" --fix-version "$fix_version" --no-input 2>>"$err" </dev/null; then
-        echo "Bootstrap fix version copy failed for ${epic_key} (${fix_version}) — set manually:" >&2
+        echo "Epic fix version copy failed for ${epic_key} (${fix_version}) — set manually:" >&2
         echo "  jira issue edit ${epic_key} --fix-version \"${fix_version}\" --no-input </dev/null" >&2
         cat "$err" >&2
       fi
@@ -559,7 +560,7 @@ apply_bootstrap_epic_metadata() {
     epic_component=${feature_component:-${BOOTSTRAP_COMPONENT:-}}
     if [ -n "$epic_component" ]; then
       if ! jira issue edit "$epic_key" --component "$epic_component" --no-input 2>>"$err" </dev/null; then
-        echo "Bootstrap component copy failed for ${epic_key} (${epic_component}) — set manually:" >&2
+        echo "Epic component copy failed for ${epic_key} (${epic_component}) — set manually:" >&2
         echo "  jira issue edit ${epic_key} --component \"${epic_component}\" --no-input </dev/null" >&2
         cat "$err" >&2
       fi

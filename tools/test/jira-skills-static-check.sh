@@ -88,9 +88,9 @@ test_osac_feature_takeover_and_derive() {
   local bash="${skill}/references/bash-patterns.md"
   local epic="${skill}/references/bootstrap-epic.md"
 
-  rg -q 'version: "0.3.0"' "$skill_md" \
-    || fail "osac-feature: SKILL.md metadata.version must be 0.3.0"
-  pass "osac-feature: version 0.3.0"
+  rg -q 'version: "0.5.0"' "$skill_md" \
+    || fail "osac-feature: SKILL.md metadata.version must be 0.5.0"
+  pass "osac-feature: version 0.5.0"
 
   rg -qi 'empty placeholder' "$skill_md" \
     || fail "osac-feature: SKILL.md must document takeover of empty placeholders"
@@ -125,8 +125,25 @@ test_osac_feature_takeover_and_derive() {
   pass "osac-feature: epic create uses BOOTSTRAP_COMPONENT"
 
   rg -qF 'read_feature_fields "$feature_key"' "$bash" \
-    || fail "apply_bootstrap_epic_metadata must call read_feature_fields \"\$feature_key\" (Feature team, not only \$team_name)"
-  pass "osac-feature: apply_bootstrap_epic_metadata reads Feature team"
+    || fail "apply_epic_metadata must call read_feature_fields \"\$feature_key\" (Feature team, not only \$team_name)"
+  pass "osac-feature: apply_epic_metadata reads Feature team"
+
+  rg -qF 'apply_epic_metadata()' "$bash" \
+    || fail "bash-patterns.md must define apply_epic_metadata (label-agnostic reusable helper)"
+  pass "osac-feature: apply_epic_metadata defined"
+
+  rg -qF 'UIX - ${FEATURE_SUMMARY}' "$epic" \
+    || fail "bootstrap-epic.md must define UIX epic summary"
+  pass "osac-feature: UIX epic summary defined"
+
+  rg -qF 'UIX_EPIC_KEY' "$epic" \
+    || fail "bootstrap-epic.md must set UIX_EPIC_KEY"
+  pass "osac-feature: UIX epic key variable"
+
+  local tasks="${skill}/references/bootstrap-tasks.md"
+  rg -qF '${UIX_EPIC_KEY}' "$tasks" \
+    || fail "bootstrap-tasks.md must parent UX/UI tasks under UIX_EPIC_KEY"
+  pass "osac-feature: UX/UI tasks parent under UIX epic"
 
   if rg -n 'jira issue edit' "$body" | rg -q -- '--template'; then
     fail "feature-body-template.md must not use --template on jira issue edit (create-only flag)"

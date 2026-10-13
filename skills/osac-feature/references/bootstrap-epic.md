@@ -4,7 +4,7 @@
 backlog; assign if requested).
 
 **Requires [bash-patterns.md](bash-patterns.md) sourced first** — helpers (`collect_keys_from_jql`,
-`require_osac_key`, `new_temp`, `read_feature_fields`, `apply_bootstrap_epic_metadata`) must already be defined.
+`require_osac_key`, `new_temp`, `read_feature_fields`, `apply_epic_metadata`) must already be defined.
 
 After the Feature exists, resolve Component and Team from the Feature (source
 of truth), falling back to the in-memory values only when the Feature field is
@@ -78,16 +78,11 @@ if [ -z "${EPIC_KEY:-}" ]; then
   ERR=$(new_temp osac-jira-epic-err)
   add_temp "$ERR"
 
-  EPIC_LABEL_FLAGS="--label bootstrap"
-  if [ "$REQUIRES_UI" = "no" ]; then
-    EPIC_LABEL_FLAGS="$EPIC_LABEL_FLAGS --label no-ui"
-  fi
-
   jira issue create -t Epic --project OSAC \
     -s "${EPIC_SUMMARY}" \
     -b "Documentation work gates for ${KEY}. These tasks track drafting, submitting, and merging planning documents — not implementation." \
     --component "${BOOTSTRAP_COMPONENT}" \
-    $EPIC_LABEL_FLAGS --no-input --raw >"$OUT" 2>"$ERR" </dev/null
+    --label bootstrap --no-input --raw >"$OUT" 2>"$ERR" </dev/null
 
   EPIC_KEY=$(jq -r '.key // empty' "$OUT")
   require_osac_key "$EPIC_KEY" "epic" "$OUT" "$ERR"
@@ -163,10 +158,147 @@ Do not create bootstrap tasks.
 ## Apply bootstrap metadata
 
 Label + copied fix version (when not backlog) + copied team and component
-(when the epic doesn't already have them). Pass the Feature-derived team:
+(when the epic doesn't already have them). Pass the Feature-derived team
+and `"bootstrap"` as the label set:
 
 ```bash
-apply_bootstrap_epic_metadata "$EPIC_KEY" "$KEY" "$BOOTSTRAP_FIX_VERSION" "$BOOTSTRAP_TEAM" "$REQUIRES_UI"
+apply_epic_metadata "$EPIC_KEY" "$KEY" "$BOOTSTRAP_FIX_VERSION" "$BOOTSTRAP_TEAM" "bootstrap"
 ```
 
 Run after parent verify succeeds — including when reusing an epic from duplicate search.
+
+## UIX epic (when `REQUIRES_UI=yes`)
+
+When the Feature requires UI work, create a sibling UIX epic under the
+Feature for the UX Design and UI Design gate tasks. The UIX epic is a
+**peer** of the bootstrap epic, not nested — both parent to the Feature.
+
+Set `UIX_EPIC_SUMMARY="UIX - ${FEATURE_SUMMARY}"` for searches and create.
+
+### UIX duplicate check
+
+Exact summary, scoped to parent; also check **orphan** UIX epics (no parent)
+from a failed create-then-parent run:
+
+```bash
+collect_keys_from_jql "parent = ${KEY} AND type = Epic AND summary = \"${UIX_EPIC_SUMMARY}\"" \
+  || { echo "UIX epic duplicate-check failed — stopping before create" >&2; exit 1; }
+if [ "$KEY_COUNT" -gt 1 ]; then
+  echo "Multiple UIX epics under ${KEY} — ask user which to use" >&2
+  exit 1
+fi
+if [ "$KEY_COUNT" -eq 1 ]; then
+  UIX_EPIC_KEY=$FIRST_KEY
+else
+  collect_keys_from_jql "project = OSAC AND type = Epic AND summary = \"${UIX_EPIC_SUMMARY}\" AND parent is EMPTY" \
+    || { echo "Orphan UIX epic duplicate-check failed — stopping before create" >&2; exit 1; }
+  if [ "$KEY_COUNT" -gt 1 ]; then
+    echo "Multiple orphan UIX epics — ask user which to use" >&2
+    exit 1
+  fi
+  if [ "$KEY_COUNT" -eq 1 ]; then
+    UIX_EPIC_KEY=$FIRST_KEY
+    # Link orphan to Feature before creating tasks (see Set parent below)
+  fi
+fi
+```
+
+A failed lookup must stop the workflow here — same reasoning as the
+bootstrap epic duplicate check.
+
+### UIX epic create
+
+Create-then-parent (skip if `UIX_EPIC_KEY` already set):
+
+```bash
+if [ -z "${UIX_EPIC_KEY:-}" ]; then
+  OUT=$(new_temp osac-jira-uix-epic-out)
+  add_temp "$OUT"
+  ERR=$(new_temp osac-jira-uix-epic-err)
+  add_temp "$ERR"
+
+  jira issue create -t Epic --project OSAC \
+    -s "${UIX_EPIC_SUMMARY}" \
+    -b "UX and UI design gates for ${KEY}. These tasks track drafting, submitting, and merging UX/UI design documents." \
+    --component "${BOOTSTRAP_COMPONENT}" \
+    --label osac-ux --label osac-ui --no-input --raw >"$OUT" 2>"$ERR" </dev/null
+
+  UIX_EPIC_KEY=$(jq -r '.key // empty' "$OUT")
+  require_osac_key "$UIX_EPIC_KEY" "UIX epic" "$OUT" "$ERR"
+fi
+```
+
+### UIX set parent
+
+Same create-then-edit pattern — run when parent is not yet `"${KEY}"`:
+
+```bash
+UIX_ERR=$(new_temp osac-jira-uix-epic-err)
+add_temp "$UIX_ERR"
+UIX_VIEW=$(new_temp osac-jira-uix-epic-view)
+add_temp "$UIX_VIEW"
+if ! jira issue view "${UIX_EPIC_KEY}" --raw >"$UIX_VIEW" 2>>"$UIX_ERR"; then
+  echo "Could not read ${UIX_EPIC_KEY} for parent check — stopping before edit" >&2
+  cat "$UIX_ERR" >&2
+  exit 1
+fi
+if ! jq -e . <"$UIX_VIEW" >/dev/null 2>>"$UIX_ERR"; then
+  echo "Could not parse ${UIX_EPIC_KEY} JSON — stopping before edit" >&2
+  exit 1
+fi
+PARENT=$(jq -r '.fields.parent.key // empty' <"$UIX_VIEW")
+if [ "$PARENT" != "$KEY" ]; then
+  if ! jira issue edit "${UIX_EPIC_KEY}" -P "${KEY}" --no-input 2>>"$UIX_ERR" </dev/null; then
+    echo "Parent edit failed for ${UIX_EPIC_KEY} — stopping" >&2
+    cat "$UIX_ERR" >&2
+    exit 1
+  fi
+fi
+```
+
+### UIX verify parent linkage
+
+Re-check once after 30s if still empty — edit may lag:
+
+```bash
+if ! jira issue view "${UIX_EPIC_KEY}" --raw >"$UIX_VIEW" 2>>"$UIX_ERR"; then
+  echo "Could not re-read ${UIX_EPIC_KEY} for parent verify — stopping" >&2
+  cat "$UIX_ERR" >&2
+  exit 1
+fi
+if ! jq -e . <"$UIX_VIEW" >/dev/null 2>>"$UIX_ERR"; then
+  echo "Could not parse ${UIX_EPIC_KEY} JSON — stopping" >&2
+  exit 1
+fi
+PARENT=$(jq -r '.fields.parent.key // empty' <"$UIX_VIEW")
+if [ "$PARENT" != "$KEY" ]; then
+  sleep 30
+  if ! jira issue view "${UIX_EPIC_KEY}" --raw >"$UIX_VIEW" 2>>"$UIX_ERR"; then
+    echo "Could not re-read ${UIX_EPIC_KEY} after parent-edit wait — stopping" >&2
+    cat "$UIX_ERR" >&2
+    exit 1
+  fi
+  if ! jq -e . <"$UIX_VIEW" >/dev/null 2>>"$UIX_ERR"; then
+    echo "Could not parse ${UIX_EPIC_KEY} JSON after wait — stopping" >&2
+    exit 1
+  fi
+  PARENT=$(jq -r '.fields.parent.key // empty' <"$UIX_VIEW")
+fi
+```
+
+If `PARENT` is still not `"${KEY}"`, stop. Report Feature key, UIX epic key,
+`$UIX_ERR`, and suggest manual fix:
+`jira issue edit "${UIX_EPIC_KEY}" -P "${KEY}" --no-input </dev/null`.
+Do not create UIX tasks.
+
+### Apply UIX epic metadata
+
+Labels `osac-ux` and `osac-ui` + copied fix version (when not backlog) +
+team always OSAC-UI + copied component:
+
+```bash
+apply_epic_metadata "$UIX_EPIC_KEY" "$KEY" "$BOOTSTRAP_FIX_VERSION" "OSAC-UI" "osac-ux osac-ui"
+```
+
+Run after UIX parent verify succeeds — including when reusing an epic from
+duplicate search.
